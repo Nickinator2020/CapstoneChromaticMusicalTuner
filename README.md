@@ -1,2 +1,2 @@
 # CapstoneChromaticMusicalTuner
-Chromatic Musical Tuner for my UWM class
+Chromatic Musical Tuner Arduino Code for UWM Capstone class
