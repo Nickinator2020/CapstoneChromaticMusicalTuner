@@ -13,8 +13,10 @@ const int serialBaudRate = 115200;
 const int ADCPin = A5;
 const float maxVoltagePkPk = 5;
 const int ADCBitResolution = 14;
-const long samplePeriod = 119; // microseconds
+const long SAMPLE_PERIOD_MS = 4; // Milliseconds (250 Hz)
+const pin_size_t BUTTON_INPUT_PIN = 13;
 
+PinStatus pinStatus = LOW;
 long prevTime = 0;
 long currentTime = 0;
 int ADCDigitalValue = 0;
@@ -30,45 +32,53 @@ int sumOfSamples = 0; // Used for average
 
 
 void setup() {
+  pinMode(BUTTON_INPUT_PIN, INPUT_PULLDOWN);          // sets the digital pin 13 as input
   Serial.begin(serialBaudRate);
   analogReadResolution(ADCBitResolution); // Set ADC to appropriate bit resolution
 }
 
 void loop() {
-  currentTime = micros();
+  // Read button
+  pinStatus = digitalRead(BUTTON_INPUT_PIN);
 
-  // Sample at sample period
-  if(currentTime - prevTime >= samplePeriod){ 
-    samples[currentSample] = analogRead(ADCPin);
+  if(pinStatus == HIGH){
+    // Let user know button as been pushed
+    Serial.println("BUTTON PUSHED!!!");
+    Serial.println("Loading in 3 seconds");
+    delay(1000);
+    Serial.println("Loading in 2 seconds");
+    delay(1000);
+    Serial.println("Loading in 1 second");
+    delay(1000);
+    Serial.println("Start sampling!!!");
+
+  // Get 500 samples in specified sampling period
+  for(int i = 0; i < SAMPLES_TAKEN; i++){
+    samples[i] = analogRead(ADCPin);
+    Serial.println("Sample " + String(i) + ": " + String(samples[i]));
     sumOfSamples += samples[currentSample];
-    
-    currentSample++;
-    prevTime = currentTime;
+    delay(SAMPLE_PERIOD_MS);
   }
-
-
-  // Check if surpassed given samples
-  if(currentSample >= SAMPLES_TAKEN){
-    
-    // BEGIN GET RID OF CODE FOR SQUARE WAVE TEST (JUST KEEP FFT STUFF)
-    int average = sumOfSamples / SAMPLES_TAKEN;
+  Serial.println("Sum of Samples: " + String(sumOfSamples));
+   int average = sumOfSamples / SAMPLES_TAKEN;
     int difference = abs(samples[0] - average);
     // Check for flatlining
     if(difference < DIFFERENCE_ERROR){
       // Not flatlining! Start FFT process
       // TODO
+      Serial.println("NOT Flatlined");
       
     }
-   // END  GET RID OF CODE FOR SQUARE WAVE TEST 
+    Serial.println("Flatlined");
 
-    // Reset everything
-    currentSample = 0; 
+    // Clear
     sumOfSamples = 0;
-    memset(samples, 0, sizeof(samples));
-    prevTime = micros();
+  } 
+  else{
+    Serial.println("BUTTON NOT PUSHED!!!");
   }
 
   
-  Serial.println("Test!");
+
   
 }
