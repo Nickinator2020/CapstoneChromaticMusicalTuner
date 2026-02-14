@@ -1,6 +1,6 @@
 /**
  * File: main.ino
- * Description: Capstone Musical Tuner Code
+ * Description: Capstone Musical Tuner Code.
  */
 
 // BEGIN DEFINES
