@@ -4,8 +4,8 @@
  */
 
 // BEGIN DEFINES
-#define SAMPLES_TAKEN 500
-#define DIFFERENCE_ERROR 20
+#define SAMPLES_TAKEN 512
+#define DIFFERENCE_ERROR 20 // Threshold
 // END DEFINES
 
 // BEGIN PRIVATE VARIABLES
@@ -13,7 +13,7 @@ const int serialBaudRate = 9600;
 const int ADCPin = A5;
 const float maxVoltagePkPk = 5;
 const int ADCBitResolution = 14;
-const long SAMPLE_PERIOD_MS = 4; // Milliseconds (250 Hz)
+const long SAMPLE_PERIOD_MICROSECONDS = 119; // Microseconds (8400 Hz)
 
 
 long prevTime = 0;
@@ -24,7 +24,6 @@ float stepSize = maxVoltagePkPk / (pow(2,ADCBitResolution) - 1);
 
 
 int samples[SAMPLES_TAKEN];
-int currentSample = 0;
 int sumOfSamples = 0; // Used for average
 
 char receivedChar = '\0';
@@ -46,12 +45,13 @@ void loop() {
   if(receivedChar == 'y' || receivedChar == 'Y'){
     Serial.println("Sampling run engaged!!");
 
-    // Get 500 samples in specified sampling period
+    // Get samples in specified sampling period
    for(int i = 0; i < SAMPLES_TAKEN; i++){
       samples[i] = analogRead(ADCPin);
       Serial.println("Sample " + String(i) + ": " + String(samples[i]));
-      sumOfSamples += samples[currentSample];
-      delay(SAMPLE_PERIOD_MS);
+      sumOfSamples += samples[i];
+
+      delayMicroseconds(SAMPLE_PERIOD_MICROSECONDS);
     }
 
     Serial.println("Sum of Samples: " + String(sumOfSamples));
@@ -62,17 +62,21 @@ void loop() {
 
     // Check for flatlining
     if(difference < DIFFERENCE_ERROR){
-      Serial.println("NOT Flatlined");
-      // Not flatlining! Start FFT process
-      // TODO
+      Serial.println("Flatlined");
+      
       
       
     }
     else{
-      Serial.println("Flatlined");
+      Serial.println("NOT Flatlined");
+      // Not flatlining! Start FFT process
+      // TODO
     }
     
+    
 
+
+    
     // Clear
     sumOfSamples = 0;
 
