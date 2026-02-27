@@ -119,6 +119,8 @@ void loop() {
     
     // Clear
     sumOfSamples = 0;
+    memset(vReal, 0, sizeof(vReal));
+    memset(vImag,0, sizeof(vImag));
 
   }
   
