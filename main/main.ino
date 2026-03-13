@@ -15,20 +15,71 @@
 #define SCL_INDEX 0x00
 #define SCL_TIME 0x01
 #define SCL_FREQUENCY 0x02
+
+// FUNDAMENTAL FREQUENCIES
+// Octave 1
+#define C1 32.70
+#define CSharp1 34.65
+#define D1 36.71
+#define DSharp1 38.89
+#define E1 41.20
+#define F1 43.65
+#define FSharp1 46.25
+#define G1 49.00
+#define GSharp1 51.91
+#define A1 55.00
+#define ASharp1 58.27
+#define B1 61.74
+// Octave 2 TODO
+
+// Octave 3 TODO
+
+// Octave 4 TODO
+#define A4 440.00
+// Octave 5 TODO
+
+// Octave 6 TODO
+
+// Octave 7 TODO
+
+// Octave 8 TODO
+
 // END DEFINES
 
+// BEGIN ENUMS
+
+typedef enum {
+  SPEAKER_MODE = 0,
+  SENSOR_MODE = 1,
+} ModeSelect;
+
+typedef enum {
+  NONE = 0,
+  UP_HALFSTEP_PIN = 1,
+  DOWN_HALFSTEP_PIN = 2,
+  UP_OCTAVE_PIN = 3,
+  DOWN_OCTAVE_PIN = 4
+} NoteButtonPinNumber;
+// END ENUMS
+
 // BEGIN PRIVATE VARIABLES
+// I/O Parameters
+const int modeSelectPin = 0;
+const int upHalfStepPin = UP_HALFSTEP_PIN;
+const int downHalfStepPin = DOWN_HALFSTEP_PIN;
+const int upOctavePin = UP_OCTAVE_PIN;
+const int downOctavePin = DOWN_OCTAVE_PIN;
+
+bool modeSelect = SENSOR_MODE;
+
+// ADC Parameters
 const int serialBaudRate = 9600;
 const int ADCPin = A5;
 const float maxVoltagePkPk = 5;
-const int ADCBitResolution = 14;
+const int ADCBitResolution = 12;
 const long SAMPLE_PERIOD_MICROSECONDS = 119; // Microseconds (8400 Hz)
-
-arduinoFFT FFT = arduinoFFT(); /* Create FFT object */
 const double SAMPLE_FREQUENCY = 8400;
 
-double voltageValue = 0;
-double stepSize = maxVoltagePkPk / (pow(2,ADCBitResolution) - 1);
 
 int samples[SAMPLES_TAKEN];
 int sumOfSamples = 0; // Used for average
@@ -36,16 +87,40 @@ int sumOfSamples = 0; // Used for average
 char receivedChar = '\0';
 
 // For FFT
+arduinoFFT FFT = arduinoFFT(); /* Create FFT object */
 double vReal[SAMPLES_TAKEN];
 double vImag[SAMPLES_TAKEN];
- // END PRIVATE VARIABLES
+double voltageValue = 0;
+double stepSize = maxVoltagePkPk / (pow(2,ADCBitResolution) - 1);
+ 
+// For DAC
+float fundamentalFrequencies[] = {C1, CSharp1, }; //TODO
+float DACFreqCurrentIndex = 0;
+// END PRIVATE VARIABLES
 
-
+// BEGIN setup() and loop()
 
 void setup() {
+  // Configure Pins
+  pinMode(modeSelectPin, INPUT_PULLUP);
+  pinMode(upHalfStepPin, INPUT_PULLUP);
+  pinMode(downHalfStepPin, INPUT_PULLUP);
+  pinMode(upOctavePin, INPUT_PULLUP);
+  pinMode(downOctavePin, INPUT_PULLUP);
 
+  // Attach interrupts to pins
+  attachInterrupt(digitalPinToInterrupt(modeSelectPin), modeConfigurationISR, CHANGE);
+  attachInterrupt(digitalPinToInterrupt(upHalfStepPin), upHalfStepISR, FALLING);
+  attachInterrupt(digitalPinToInterrupt(downHalfStepPin), downHalfStepISR, FALLING);
+  attachInterrupt(digitalPinToInterrupt(upOctavePin), upOctaveISR, FALLING);
+  attachInterrupt(digitalPinToInterrupt(downOctavePin), downOctaveISR, FALLING);
+
+
+  // Configure serial port for testing
   Serial.begin(serialBaudRate);
-  analogReadResolution(ADCBitResolution); // Set ADC to appropriate bit resolution
+
+  // Set ADC to appropriate bit resolution
+  analogReadResolution(ADCBitResolution); 
   Serial.println("Starting loop!");
 }
 
@@ -124,7 +199,44 @@ void loop() {
 
   }
   
+  Serial.println(digitalRead(modeSelectPin));
+  delay(1000);
 }
+
+// END setup() and loop()
+
+// BEGIN ISRs
+void modeConfigurationISR(){
+  modeSelect = !modeSelect;
+ 
+
+}
+
+void upHalfStepISR(){
+  if(modeSelect == SPEAKER_MODE){
+    //TODO Change DACFreqCurrentIndex
+  }
+}
+
+void downHalfStepISR(){
+  if(modeSelect == SPEAKER_MODE){
+    //TODO Change DACFreqCurrentIndex
+  }
+}
+
+void upOctaveISR(){
+  if(modeSelect == SPEAKER_MODE){
+    //TODO Change DACFreqCurrentIndex
+  }
+}
+
+void downOctaveISR(){
+  if(modeSelect == SPEAKER_MODE){
+    //TODO Change DACFreqCurrentIndex
+  }
+}
+// END ISRs
+
 /**
  * Name: receiveCharFromSerial
  * Description: Function to receive a character from Serial line
