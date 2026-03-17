@@ -1,6 +1,11 @@
 /**
  * File: main.ino
  * Description: Capstone Musical Tuner Code
+ * 
+ * Sources: 
+ *  *Button Debounce Logic:
+ *      Website: DigitKey
+ *      Link: https://www.digikey.com/en/maker/tutorials/2024/how-to-implement-a-software-based-debounce-algorithm-for-button-inputs-on-a-microcontroller
  */
 
 // BEGIN LIBRARIES
@@ -10,6 +15,7 @@
 // BEGIN DEFINES
 #define SAMPLES_TAKEN 512
 #define DIFFERENCE_ERROR 20 // Threshold
+#define DEBOUNCE_TIME 50    // Debounce time in milliseconds
 
 // For FFT
 #define SCL_INDEX 0x00
@@ -114,6 +120,17 @@
 #define OCTAVE_DISTANCE 12
 // END DEFINES
 
+// BEGIN FUNCTION PROTOTYPES
+void debounceButtonHandler(pin_size_t pin, bool *pinState, bool *pinLastState, unsigned long *lastDebounceTime, void (*buttonHandler)(void));
+void invertModeSelect();
+void upHalfStep();
+void downHalfStep();
+void upOctave();
+void downOctave();
+char receiveCharFromSerial();
+void PrintVector(double *vData, uint16_t elements, uint8_t scaleType);
+// END FUNCTION PROTOTYPES
+
 // BEGIN ENUMS
 
 typedef enum {
@@ -122,23 +139,39 @@ typedef enum {
 } ModeSelect;
 
 typedef enum {
-  NONE = 0,
+  NONE = -1,
+  MODE_SELECT_PIN = 0,
   UP_HALFSTEP_PIN = 1,
   DOWN_HALFSTEP_PIN = 2,
   UP_OCTAVE_PIN = 3,
   DOWN_OCTAVE_PIN = 4
-} NoteButtonPinNumber;
+} GPIOPinNumber;
 // END ENUMS
+
+// BEGIN STRUCT DEFINITIONS
+typedef struct Button {
+   pin_size_t pin;
+   PinMode mode;
+   bool pinState;
+   bool pinLastState;
+   unsigned long debounceTimeMilliseconds;
+   void (*buttonHandler)(void);
+};
+// END STRUCT DEFINITIONS
 
 // BEGIN PRIVATE VARIABLES
 // I/O Parameters
-const int modeSelectPin = 0;
-const int upHalfStepPin = UP_HALFSTEP_PIN;
-const int downHalfStepPin = DOWN_HALFSTEP_PIN;
-const int upOctavePin = UP_OCTAVE_PIN;
-const int downOctavePin = DOWN_OCTAVE_PIN;
-
 bool modeSelect = SENSOR_MODE;
+
+Button modeSelectButton = {.pin = MODE_SELECT_PIN, .mode = INPUT_PULLUP, .pinState = HIGH, .pinLastState = HIGH, .debounceTimeMilliseconds = 0, .buttonHandler = invertModeSelect};
+Button frequencyShiftButtons[] = {
+  {.pin = UP_HALFSTEP_PIN, .mode = INPUT_PULLUP, .pinState = HIGH, .pinLastState = HIGH, .debounceTimeMilliseconds = 0, .buttonHandler = upHalfStep},
+  {.pin = DOWN_HALFSTEP_PIN, .mode = INPUT_PULLUP, .pinState = HIGH, .pinLastState = HIGH, .debounceTimeMilliseconds = 0, .buttonHandler = downHalfStep},
+  {.pin = UP_OCTAVE_PIN, .mode = INPUT_PULLUP, .pinState = HIGH, .pinLastState = HIGH, .debounceTimeMilliseconds = 0, .buttonHandler = upOctave},
+  {.pin = DOWN_OCTAVE_PIN, .mode = INPUT_PULLUP, .pinState = HIGH, .pinLastState = HIGH, .debounceTimeMilliseconds = 0, .buttonHandler = downOctave},
+};
+const int frequencyShiftButtonsLength = sizeof(frequencyShiftButtons) / sizeof(frequencyShiftButtons[0]);
+
 
 // ADC Parameters
 const int serialBaudRate = 9600;
@@ -152,7 +185,7 @@ const double SAMPLE_FREQUENCY = 8400;
 int samples[SAMPLES_TAKEN];
 int sumOfSamples = 0; // Used for average
 
-char receivedChar = '\0';
+char TESTING_receivedChar = '\0';
 
 // For FFT
 arduinoFFT FFT = arduinoFFT(); /* Create FFT object */
@@ -180,117 +213,176 @@ int DACFreqCurrentIndex = 0;
 
 void setup() {
   // Configure Pins
-  pinMode(modeSelectPin, INPUT_PULLUP);
-  pinMode(upHalfStepPin, INPUT_PULLUP);
-  pinMode(downHalfStepPin, INPUT_PULLUP);
-  pinMode(upOctavePin, INPUT_PULLUP);
-  pinMode(downOctavePin, INPUT_PULLUP);
+  pinMode(modeSelectButton.pin, modeSelectButton.mode);
 
-  // Attach interrupts to pins
-  attachInterrupt(digitalPinToInterrupt(modeSelectPin), modeConfigurationISR, CHANGE);
-  attachInterrupt(digitalPinToInterrupt(upHalfStepPin), upHalfStepISR, FALLING);
-  attachInterrupt(digitalPinToInterrupt(downHalfStepPin), downHalfStepISR, FALLING);
-  attachInterrupt(digitalPinToInterrupt(upOctavePin), upOctaveISR, FALLING);
-  attachInterrupt(digitalPinToInterrupt(downOctavePin), downOctaveISR, FALLING);
-
+  for(int i = 0; i < frequencyShiftButtonsLength; i++){
+    pinMode(frequencyShiftButtons[i].pin, frequencyShiftButtons[i].mode);
+  }
+  
+  pinMode(LED_TX, OUTPUT);
+  pinMode(LED_RX, OUTPUT);
+  
 
   // Configure serial port for testing
   Serial.begin(serialBaudRate);
 
   // Set ADC to appropriate bit resolution
   analogReadResolution(ADCBitResolution); 
-  Serial.println("Starting loop!");
 }
 
 void loop() {
+  
   // Read serial - FOR TESTING PURPOSES
-  receivedChar = receiveCharFromSerial();
+  TESTING_receivedChar = receiveCharFromSerial();
+  
+  debounceButtonHandler(modeSelectButton.pin, &modeSelectButton.pinState, &modeSelectButton.pinLastState, &modeSelectButton.debounceTimeMilliseconds, modeSelectButton.buttonHandler);
+  
+  if(modeSelect == SENSOR_MODE){
+    // Begin Sensor Mode Logic - indicated by LED_TX. Note, 0 indicates ON
+    digitalWrite(LED_TX, 0);
+    digitalWrite(LED_RX, 1);
+   
+  //   if(TESTING_receivedChar == 'y' || TESTING_receivedChar == 'Y'){
+  //     Serial.println("TEST Sampling run engaged for SENSOR MODE!!");
 
-  if(receivedChar == 'y' || receivedChar == 'Y'){
-    Serial.println("Sampling run engaged!!");
+  //     // Get samples in specified sampling period
+  //     for(int i = 0; i < SAMPLES_TAKEN; i++){
+  //       samples[i] = analogRead(ADCPin);
+  //       //Serial.println("Sample " + String(i) + ": " + String(samples[i]));
+  //       sumOfSamples += samples[i];
 
-    // Get samples in specified sampling period
-   for(int i = 0; i < SAMPLES_TAKEN; i++){
-      samples[i] = analogRead(ADCPin);
-      //Serial.println("Sample " + String(i) + ": " + String(samples[i]));
-      sumOfSamples += samples[i];
+  //       // Put voltage value in Real part array
+  //       voltageValue = samples[i] * stepSize;
+  //       vReal[i] = voltageValue;
 
-      // Put voltage value in Real part array
-      voltageValue = samples[i] * stepSize;
-      vReal[i] = voltageValue;
+  //       delayMicroseconds(SAMPLE_PERIOD_MICROSECONDS);
+  //     }
 
-      delayMicroseconds(SAMPLE_PERIOD_MICROSECONDS);
-    }
+  //     //Serial.println("Sum of Samples: " + String(sumOfSamples));
+  //     int average = sumOfSamples / SAMPLES_TAKEN;
+  //     Serial.println("Average: " + String(average));
+  //     int difference = abs(samples[0] - average);
+  //     Serial.println("Difference: " + String(difference));
 
-    //Serial.println("Sum of Samples: " + String(sumOfSamples));
-    int average = sumOfSamples / SAMPLES_TAKEN;
-    Serial.println("Average: " + String(average));
-    int difference = abs(samples[0] - average);
-    Serial.println("Difference: " + String(difference));
-
-    // Check for flatlining
-    if(difference < DIFFERENCE_ERROR){
-      Serial.println("Flatlined");
       
+  //     // Check for flatlining - TODO - get rid of this implementation
+  //     //TODO: Use LED_BUILTIN for clipping detection
+  //     if(difference < DIFFERENCE_ERROR){
+  //       Serial.println("Flatlined");
       
-    }
-    else{
-      Serial.println("NOT Flatlined");
-      // Not flatlining! Start FFT process
-      // TODO
+  //     }
+  //     else{
+  //       Serial.println("NOT Flatlined");
+  //       // Not flatlining! Start FFT process
+  //       // TODO TEST THIS MORE!!!
+        
+  //       // Starting values before FFT
+  //       Serial.println("Voltage Values:");
+  //       PrintVector(vReal, SAMPLES_TAKEN, SCL_TIME);
+        
+  //       // Weigh the Data:
+  //       FFT.Windowing(vReal, SAMPLES_TAKEN, FFT_WIN_TYP_HAMMING, FFT_FORWARD);	/* Weigh data */
+  //       Serial.println("Weighed data:");
+  //       PrintVector(vReal, SAMPLES_TAKEN, SCL_TIME);
+
+  //       // Compute FFT:
+  //       FFT.Compute(vReal, vImag, SAMPLES_TAKEN, FFT_FORWARD); /* Compute FFT */
+  //       Serial.println("Computed Real values:");
+  //       PrintVector(vReal, SAMPLES_TAKEN, SCL_INDEX);
+  //       Serial.println("Computed Imaginary values:");
+  //       PrintVector(vImag, SAMPLES_TAKEN, SCL_INDEX);
+
+  //       // Compute Magnitudes:
+  //       Serial.println("Computed magnitudes:");
+  //       FFT.ComplexToMagnitude(vReal, vImag, SAMPLES_TAKEN);
+  //       // Since it is mirrored!!!
+  //       PrintVector(vReal, (SAMPLES_TAKEN >> 1), SCL_FREQUENCY); 
+
+  //       double x = FFT.MajorPeak(vReal, SAMPLES_TAKEN, SAMPLE_FREQUENCY);
+  //       Serial.println("Peak Magnitude (Frequency Value I think!!!):");
+  //       Serial.println(x, 6);
+  //     }
       
-      // Starting values before FFT
-      Serial.println("Voltage Values:");
-      PrintVector(vReal, SAMPLES_TAKEN, SCL_TIME);
-      
-      // Weigh the Data:
-      FFT.Windowing(vReal, SAMPLES_TAKEN, FFT_WIN_TYP_HAMMING, FFT_FORWARD);	/* Weigh data */
-      Serial.println("Weighed data:");
-      PrintVector(vReal, SAMPLES_TAKEN, SCL_TIME);
+  //     // Clear
+  //     sumOfSamples = 0;
+  //     memset(vReal, 0, sizeof(vReal));
+  //     memset(vImag,0, sizeof(vImag));
 
-      // Compute FFT:
-      FFT.Compute(vReal, vImag, SAMPLES_TAKEN, FFT_FORWARD); /* Compute FFT */
-      Serial.println("Computed Real values:");
-      PrintVector(vReal, SAMPLES_TAKEN, SCL_INDEX);
-      Serial.println("Computed Imaginary values:");
-      PrintVector(vImag, SAMPLES_TAKEN, SCL_INDEX);
-
-      // Compute Magnitudes:
-      Serial.println("Computed magnitudes:");
-      FFT.ComplexToMagnitude(vReal, vImag, SAMPLES_TAKEN);
-      // Since it is mirrored!!!
-      PrintVector(vReal, (SAMPLES_TAKEN >> 1), SCL_FREQUENCY); 
-
-      double x = FFT.MajorPeak(vReal, SAMPLES_TAKEN, SAMPLE_FREQUENCY);
-      Serial.println("Peak Magnitude (Frequency Value I think!!!):");
-      Serial.println(x, 6);
-    }
-    
-    
-
-
-    
-    // Clear
-    sumOfSamples = 0;
-    memset(vReal, 0, sizeof(vReal));
-    memset(vImag,0, sizeof(vImag));
+  // }
 
   }
-  
-  Serial.println(digitalRead(modeSelectPin));
-  delay(1000);
+  else{
+    // Begin Speaker Mode Logic - indicated by LED_RX. Note, 0 indicates ON
+    digitalWrite(LED_TX, 1);
+    digitalWrite(LED_RX, 0);
+
+    //TODO: Speaker Mode Logic using DAC - NICK S
+    float outputFrequency = fundamentalFrequencies[DACFreqCurrentIndex];
+    // TODO Test print output frequency - Can get rid of
+    Serial.print(outputFrequency);
+    Serial.println(" Hz");
+    
+    // "Listening" frequency buttons logic
+    for(int i = 0; i < frequencyShiftButtonsLength; i++){
+      debounceButtonHandler(frequencyShiftButtons[i].pin, &frequencyShiftButtons[i].pinState, &frequencyShiftButtons[i].pinLastState, 
+        &frequencyShiftButtons[i].debounceTimeMilliseconds, frequencyShiftButtons[i].buttonHandler);
+    }
+    
+  }
+
 }
 
 // END setup() and loop()
 
-// BEGIN ISRs
-void modeConfigurationISR(){
-  modeSelect = !modeSelect;
- 
 
+/**
+ * Name: debounceButtonHandler
+ * Description: Debouncing button logic
+ * Params:
+ * - pin: GPIO Pin
+ * - pinState: Variable used to keep track of the pin state
+ * - pinLastState: Variable used to keep track of the last pin state
+ * - lastDebounceTime: Variable used to keep track of the last debounce time (in milliseconds)
+ * - buttonHandler: function for what to do when debouncing is done
+ * 
+ * Returns: None
+ */
+void debounceButtonHandler(pin_size_t pin, bool *pinState, bool *pinLastState, unsigned long *lastDebounceTime, void (*buttonHandler)(void)){
+  bool pinReading = digitalRead(pin);
+  
+  if(pinReading != *pinLastState){
+    *lastDebounceTime = millis();
+  }
+
+  if ((millis() - *lastDebounceTime) > DEBOUNCE_TIME) {
+        // Debounce time has passed, check if the state has stabilized
+        if (pinReading != *pinState) {
+            *pinState = pinReading; // Update the stable state
+            if (*pinState == LOW) {
+                (*buttonHandler)();
+            }
+        }
+    }
+    *pinLastState = pinReading;
+}
+/**
+ * Name: invertModeSelect
+ * Description: Inverts mode select
+ * Params: None
+ * Returns: None
+ */
+void invertModeSelect(){
+  modeSelect = !modeSelect;
 }
 
-void upHalfStepISR(){
+/**
+ * Name: upHalfStep
+ * Description: Increases DAC Frequency by a half step in the chromatic scale ranging from C1 - C8. 
+ * Note, only use for SPEAKER MODE
+ * Params: None
+ * Returns: None
+ */
+void upHalfStep(){
   if(modeSelect == SPEAKER_MODE){
     DACFreqCurrentIndex++;
     
@@ -301,7 +393,14 @@ void upHalfStepISR(){
   }
 }
 
-void downHalfStepISR(){
+/**
+ * Name: downHalfStep
+ * Description: Decreases DAC Frequency by a half step in the chromatic scale ranging from C1 - C8. 
+ * Note, only use for SPEAKER MODE
+ * Params: None
+ * Returns: None
+ */
+void downHalfStep(){
   if(modeSelect == SPEAKER_MODE){
     DACFreqCurrentIndex--;
 
@@ -312,28 +411,48 @@ void downHalfStepISR(){
   }
 }
 
-void upOctaveISR(){
+/**
+ * Name: upOctave
+ * Description: Increases DAC Frequency by an octave in the chromatic scale ranging from C1 - C8. 
+ * Note, only use for SPEAKER MODE
+ * Params: None
+ * Returns: None
+ */
+void upOctave(){
   if(modeSelect == SPEAKER_MODE){
+    float currFreq = fundamentalFrequencies[DACFreqCurrentIndex];
     DACFreqCurrentIndex += OCTAVE_DISTANCE;
 
     // Overflow:
     if(DACFreqCurrentIndex >= fundamentalFrequenciesArrayLength){
-      DACFreqCurrentIndex = DACFreqCurrentIndex - fundamentalFrequenciesArrayLength;
+      
+      DACFreqCurrentIndex = DACFreqCurrentIndex - fundamentalFrequenciesArrayLength + 1;
+      // Special Case for C8
+      if(currFreq == C8) DACFreqCurrentIndex -= OCTAVE_DISTANCE;
     }
   }
 }
 
-void downOctaveISR(){
+/**
+ * Name: downOctave
+ * Description: Decreases DAC Frequency by an octave in the chromatic scale ranging from C1 - C8. 
+ * Note, only use for SPEAKER MODE
+ * Params: None
+ * Returns: None
+ */
+void downOctave(){
   if(modeSelect == SPEAKER_MODE){
+    float currFreq = fundamentalFrequencies[DACFreqCurrentIndex];
     DACFreqCurrentIndex -= OCTAVE_DISTANCE;
 
     // Underflow:
     if(DACFreqCurrentIndex < 0){
-      DACFreqCurrentIndex = DACFreqCurrentIndex + fundamentalFrequenciesArrayLength;
+      DACFreqCurrentIndex = DACFreqCurrentIndex + fundamentalFrequenciesArrayLength - 1;
+      // Special Case for C1
+      if(currFreq == C1) DACFreqCurrentIndex += OCTAVE_DISTANCE;
     }
   }
 }
-// END ISRs
 
 /**
  * Name: receiveCharFromSerial
