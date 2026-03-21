@@ -10,6 +10,7 @@
 
 // BEGIN LIBRARIES
 #include "arduinoFFT.h"
+#include <math.h>
 // END LIBRARIES
 
 // BEGIN DEFINES
@@ -188,8 +189,6 @@ const double SAMPLE_FREQUENCY = 8400;
 
 int samples[SAMPLES_TAKEN];
 
-char TESTING_receivedChar = '\0';
-
 // For FFT
 arduinoFFT FFT = arduinoFFT(); /* Create FFT object */
 double vReal[SAMPLES_TAKEN];
@@ -238,7 +237,7 @@ void setup() {
 void loop() {
   
   // Read serial - FOR TESTING PURPOSES
-  TESTING_receivedChar = receiveCharFromSerial();
+  char TESTING_receivedChar = receiveCharFromSerial();
   
   debounceButtonHandler(modeSelectButton.pin, &modeSelectButton.pinState, &modeSelectButton.pinLastState, &modeSelectButton.debounceTimeMilliseconds, modeSelectButton.buttonHandler);
   
@@ -274,32 +273,10 @@ void loop() {
         // Not flatlining! Start FFT process
         
         // TODO TEST THIS MORE!!!
-        
-        // // Starting values before FFT
-        // Serial.println("Voltage Values:");
-        // PrintVector(vReal, SAMPLES_TAKEN, SCL_TIME);
-        
-        // // Weigh the Data:
-        // FFT.Windowing(vReal, SAMPLES_TAKEN, FFT_WIN_TYP_HAMMING, FFT_FORWARD);	/* Weigh data */
-        // Serial.println("Weighed data:");
-        // PrintVector(vReal, SAMPLES_TAKEN, SCL_TIME);
+        double peakFreq = computeFFT(SAMPLES_TAKEN, SAMPLE_FREQUENCY, vReal, vImag);
 
-        // // Compute FFT:
-        // FFT.Compute(vReal, vImag, SAMPLES_TAKEN, FFT_FORWARD); /* Compute FFT */
-        // Serial.println("Computed Real values:");
-        // PrintVector(vReal, SAMPLES_TAKEN, SCL_INDEX);
-        // Serial.println("Computed Imaginary values:");
-        // PrintVector(vImag, SAMPLES_TAKEN, SCL_INDEX);
-
-        // // Compute Magnitudes:
-        // Serial.println("Computed magnitudes:");
-        // FFT.ComplexToMagnitude(vReal, vImag, SAMPLES_TAKEN);
-        // // Since it is mirrored!!!
-        // PrintVector(vReal, (SAMPLES_TAKEN >> 1), SCL_FREQUENCY); 
-
-        // double x = FFT.MajorPeak(vReal, SAMPLES_TAKEN, SAMPLE_FREQUENCY);
-        // Serial.println("Peak Magnitude (Frequency Value I think!!!):");
-        // Serial.println(x, 6);
+        Serial.println("Peak Frequency:");
+        Serial.println(peakFreq, 6);
       }
 
       // Reset Variables
@@ -333,6 +310,58 @@ void loop() {
 
 // END setup() and loop()
 
+/**
+ * Name: computeFFT
+ * Description: Computes the FFT on the vReal data and returns the peak frequency
+ * Params:
+ * - samples: Samples. Must be a power of 2
+ * - sampleFrequency: Sample frequency. Must be greater than 0
+ * - vReal: Pointer to double array that functions as input and output. It is assumed that the length of the array is equal to
+ *  the samples 
+ *    - input: Contains samples that are the voltage values
+ *    - output: Stores the complex magnitudes from the FFT computation. Each index corresponds to the bin width.
+ * - vImag: Imag array that functions as an input and output. It is assumed that the length of the array is equal to
+ *  the samples 
+ *    - input: Contains NULL data for each element
+ *    - output: Contains the imaginary computed FFT values
+ * 
+ * Returns: double: the peak frequency from the *vReal array or -1 if the samples are not a power of 2 or if the sample frequency is <= 0
+ */
+double computeFFT(int samples, int sampleFrequency, double *vReal, double *vImag){
+        // TODO: Test this more:
+
+        // Error checking:
+        double difference = log2(samples) - ((int)log2(samples));
+        if(sampleFrequency <= 0 || difference != 0.0) return -1;
+
+        //Serial.println("Voltage Values:");
+        //PrintVector(vReal, SAMPLES_TAKEN, SCL_TIME);
+        unsigned long prevTime = millis();
+     
+        // Weigh the Data:
+        FFT.Windowing(vReal, SAMPLES_TAKEN, FFT_WIN_TYP_HAMMING, FFT_FORWARD);	/* Weigh data */
+    
+        // Compute FFT:
+        FFT.Compute(vReal, vImag, SAMPLES_TAKEN, FFT_FORWARD); /* Compute FFT */
+        // Serial.println("Computed Real values:");
+        // PrintVector(vReal, SAMPLES_TAKEN, SCL_INDEX);
+        // Serial.println("Computed Imaginary values:");
+        // PrintVector(vImag, SAMPLES_TAKEN, SCL_INDEX);
+
+        // Compute Magnitudes:
+        Serial.println("Computed magnitudes:");
+        FFT.ComplexToMagnitude(vReal, vImag, SAMPLES_TAKEN);
+        // Since it is mirrored!!!
+        //PrintVector(vReal, (SAMPLES_TAKEN >> 1), SCL_FREQUENCY); 
+        
+        unsigned long timeDiff = (millis() - prevTime);
+        Serial.print("FFT Computation Time: ");
+
+        Serial.print(timeDiff);
+        Serial.println(" ms");
+
+        return FFT.MajorPeak(vReal, SAMPLES_TAKEN, SAMPLE_FREQUENCY);
+}
 
 /**
  * Name: blinkSystemLED
