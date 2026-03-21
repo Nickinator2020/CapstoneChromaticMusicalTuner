@@ -14,8 +14,9 @@
 
 // BEGIN DEFINES
 #define SAMPLES_TAKEN 512
-#define DIFFERENCE_ERROR 20 // Threshold
 #define DEBOUNCE_TIME 50    // Debounce time in milliseconds
+#define CLIPPED_LED_BLINK_TIMES 3
+#define CLIPPED_LED_BLINK_DURATION_MS 1000
 
 // For FFT
 #define SCL_INDEX 0x00
@@ -129,6 +130,7 @@ void upOctave();
 void downOctave();
 char receiveCharFromSerial();
 void PrintVector(double *vData, uint16_t elements, uint8_t scaleType);
+void blinkSystemLED(int blinkTimes, int blinkDuration_ms);
 // END FUNCTION PROTOTYPES
 
 // BEGIN ENUMS
@@ -175,15 +177,16 @@ const int frequencyShiftButtonsLength = sizeof(frequencyShiftButtons) / sizeof(f
 
 // ADC Parameters
 const int serialBaudRate = 9600;
-const int ADCPin = A5;
+const int ADCPin = PIN_A5;
 const float maxVoltagePkPk = 5;
 const int ADCBitResolution = 12;
+const int MaxADCValue = (pow(2,ADCBitResolution) - 1); // Used for clipping detection
+const int MinADCValue = 0;                             // Used for clipping detection
 const long SAMPLE_PERIOD_MICROSECONDS = 119; // (8400 Hz)
 const double SAMPLE_FREQUENCY = 8400;
 
 
 int samples[SAMPLES_TAKEN];
-int sumOfSamples = 0; // Used for average
 
 char TESTING_receivedChar = '\0';
 
@@ -193,6 +196,7 @@ double vReal[SAMPLES_TAKEN];
 double vImag[SAMPLES_TAKEN];
 double voltageValue = 0;
 double stepSize = maxVoltagePkPk / (pow(2,ADCBitResolution) - 1);
+bool signalClipped = false;
  
 // For DAC
 float fundamentalFrequencies[] = {
@@ -221,6 +225,7 @@ void setup() {
   
   pinMode(LED_TX, OUTPUT);
   pinMode(LED_RX, OUTPUT);
+  pinMode(PIN_LED, OUTPUT);
   
 
   // Configure serial port for testing
@@ -241,75 +246,68 @@ void loop() {
     // Begin Sensor Mode Logic - indicated by LED_TX. Note, 0 indicates ON
     digitalWrite(LED_TX, 0);
     digitalWrite(LED_RX, 1);
-   
-  //   if(TESTING_receivedChar == 'y' || TESTING_receivedChar == 'Y'){
-  //     Serial.println("TEST Sampling run engaged for SENSOR MODE!!");
+  
+    
+    if(TESTING_receivedChar == 'y' || TESTING_receivedChar == 'Y'){
+      Serial.println("TEST Sampling run engaged for SENSOR MODE!!");
 
-  //     // Get samples in specified sampling period
-  //     for(int i = 0; i < SAMPLES_TAKEN; i++){
-  //       samples[i] = analogRead(ADCPin);
-  //       //Serial.println("Sample " + String(i) + ": " + String(samples[i]));
-  //       sumOfSamples += samples[i];
+      // Get samples in specified sampling period
+      for(int i = 0; i < SAMPLES_TAKEN; i++){
+        samples[i] = analogRead(ADCPin);
+        if(samples[i] == MaxADCValue || samples[i] == MinADCValue){
+          signalClipped = true;
+          // Blink System LED to indicate signal has been clipped
+          blinkSystemLED(CLIPPED_LED_BLINK_TIMES, CLIPPED_LED_BLINK_DURATION_MS);
+          break;
+        }
 
-  //       // Put voltage value in Real part array
-  //       voltageValue = samples[i] * stepSize;
-  //       vReal[i] = voltageValue;
+        // Put voltage value in Real part array
+        voltageValue = samples[i] * stepSize;
 
-  //       delayMicroseconds(SAMPLE_PERIOD_MICROSECONDS);
-  //     }
 
-  //     //Serial.println("Sum of Samples: " + String(sumOfSamples));
-  //     int average = sumOfSamples / SAMPLES_TAKEN;
-  //     Serial.println("Average: " + String(average));
-  //     int difference = abs(samples[0] - average);
-  //     Serial.println("Difference: " + String(difference));
+        vReal[i] = voltageValue;
 
-      
-  //     // Check for flatlining - TODO - get rid of this implementation
-  //     //TODO: Use LED_BUILTIN for clipping detection
-  //     if(difference < DIFFERENCE_ERROR){
-  //       Serial.println("Flatlined");
-      
-  //     }
-  //     else{
-  //       Serial.println("NOT Flatlined");
-  //       // Not flatlining! Start FFT process
-  //       // TODO TEST THIS MORE!!!
+        delayMicroseconds(SAMPLE_PERIOD_MICROSECONDS);
+      }
+
+      if(!signalClipped){
+        // Not flatlining! Start FFT process
         
-  //       // Starting values before FFT
-  //       Serial.println("Voltage Values:");
-  //       PrintVector(vReal, SAMPLES_TAKEN, SCL_TIME);
+        // TODO TEST THIS MORE!!!
         
-  //       // Weigh the Data:
-  //       FFT.Windowing(vReal, SAMPLES_TAKEN, FFT_WIN_TYP_HAMMING, FFT_FORWARD);	/* Weigh data */
-  //       Serial.println("Weighed data:");
-  //       PrintVector(vReal, SAMPLES_TAKEN, SCL_TIME);
+        // // Starting values before FFT
+        // Serial.println("Voltage Values:");
+        // PrintVector(vReal, SAMPLES_TAKEN, SCL_TIME);
+        
+        // // Weigh the Data:
+        // FFT.Windowing(vReal, SAMPLES_TAKEN, FFT_WIN_TYP_HAMMING, FFT_FORWARD);	/* Weigh data */
+        // Serial.println("Weighed data:");
+        // PrintVector(vReal, SAMPLES_TAKEN, SCL_TIME);
 
-  //       // Compute FFT:
-  //       FFT.Compute(vReal, vImag, SAMPLES_TAKEN, FFT_FORWARD); /* Compute FFT */
-  //       Serial.println("Computed Real values:");
-  //       PrintVector(vReal, SAMPLES_TAKEN, SCL_INDEX);
-  //       Serial.println("Computed Imaginary values:");
-  //       PrintVector(vImag, SAMPLES_TAKEN, SCL_INDEX);
+        // // Compute FFT:
+        // FFT.Compute(vReal, vImag, SAMPLES_TAKEN, FFT_FORWARD); /* Compute FFT */
+        // Serial.println("Computed Real values:");
+        // PrintVector(vReal, SAMPLES_TAKEN, SCL_INDEX);
+        // Serial.println("Computed Imaginary values:");
+        // PrintVector(vImag, SAMPLES_TAKEN, SCL_INDEX);
 
-  //       // Compute Magnitudes:
-  //       Serial.println("Computed magnitudes:");
-  //       FFT.ComplexToMagnitude(vReal, vImag, SAMPLES_TAKEN);
-  //       // Since it is mirrored!!!
-  //       PrintVector(vReal, (SAMPLES_TAKEN >> 1), SCL_FREQUENCY); 
+        // // Compute Magnitudes:
+        // Serial.println("Computed magnitudes:");
+        // FFT.ComplexToMagnitude(vReal, vImag, SAMPLES_TAKEN);
+        // // Since it is mirrored!!!
+        // PrintVector(vReal, (SAMPLES_TAKEN >> 1), SCL_FREQUENCY); 
 
-  //       double x = FFT.MajorPeak(vReal, SAMPLES_TAKEN, SAMPLE_FREQUENCY);
-  //       Serial.println("Peak Magnitude (Frequency Value I think!!!):");
-  //       Serial.println(x, 6);
-  //     }
-      
-  //     // Clear
-  //     sumOfSamples = 0;
-  //     memset(vReal, 0, sizeof(vReal));
-  //     memset(vImag,0, sizeof(vImag));
+        // double x = FFT.MajorPeak(vReal, SAMPLES_TAKEN, SAMPLE_FREQUENCY);
+        // Serial.println("Peak Magnitude (Frequency Value I think!!!):");
+        // Serial.println(x, 6);
+      }
 
-  // }
+      // Reset Variables
+      memset(vReal, 0, sizeof(vReal));
+      memset(vImag,0, sizeof(vImag));
+      signalClipped = false;
 
+  }
   }
   else{
     // Begin Speaker Mode Logic - indicated by LED_RX. Note, 0 indicates ON
@@ -318,6 +316,7 @@ void loop() {
 
     //TODO: Speaker Mode Logic using DAC - NICK S
     float outputFrequency = fundamentalFrequencies[DACFreqCurrentIndex];
+
     // TODO Test print output frequency - Can get rid of
     Serial.print(outputFrequency);
     Serial.println(" Hz");
@@ -333,6 +332,30 @@ void loop() {
 }
 
 // END setup() and loop()
+
+
+/**
+ * Name: blinkSystemLED
+ * Description: Function to blink PIN_LED a certain number of times with each blink being a 
+ * specified duration
+ * Params:
+ * - blinkTimes: The number of times to blink the LED. Must be greater than 0, otherwise this function just returns.
+ * - blinkDuration_ms: The duration in milliseconds for each blink. Must be greater than 0, otherwise this function just returns.
+ * Returns: None
+ */
+void blinkSystemLED(int blinkTimes, int blinkDuration_ms){
+  
+  if(blinkTimes <= 0 || blinkDuration_ms <= 0) return;
+
+  int halfBlinkDuration_ms = blinkDuration_ms / 2;
+
+  for(int j = 0; j < blinkTimes; j++){
+    digitalWrite(PIN_LED, 1); // ON
+    delay(halfBlinkDuration_ms);
+    digitalWrite(PIN_LED, 0);// OFF
+    delay(halfBlinkDuration_ms);
+  }
+}
 
 
 /**
