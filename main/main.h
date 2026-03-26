@@ -149,6 +149,8 @@ void downOctave();
 char receiveCharFromSerial();
 int PrintVector(double *vData, uint16_t elements, uint8_t scaleType, int samples, int sampleFrequency);
 void blinkSystemLED(int blinkTimes, int blinkDuration_ms);
+float determineFundamentalFreq(float userFreq);
+char * getStringFromFundamentalFreq( float fundamentalFreq );
 // END FUNCTION PROTOTYPES
 
 
