@@ -100,8 +100,8 @@ void loop() {
     digitalWrite(LED_TX, 0);
     digitalWrite(LED_RX, 1);
 
-    if(TESTING_receivedChar == 'y' || TESTING_receivedChar == 'Y'){
-      Serial.println("TEST Sampling run engaged for SENSOR MODE!!");
+    // if(TESTING_receivedChar == 'y' || TESTING_receivedChar == 'Y'){ // Conditional statement used for testing purposes - NL
+      //Serial.println("TEST Sampling run engaged for SENSOR MODE!!");
 
       // Get samples in specified sampling period
       for(int i = 0; i < SAMPLES_TAKEN; i++){
@@ -124,12 +124,7 @@ void loop() {
 
       if(!signalClipped){
         // Not flatlining! Start FFT process
-        
       
-        // double peakFreq = computeFFT(SAMPLES_TAKEN, SAMPLE_FREQUENCY, vReal, vImag);
-        // Serial.println("Peak Frequency:");
-        // Serial.println(peakFreq, 6);
-
         // NOTE: Currently, this only works between 32 Hz - 3100 Hz on sine and square waves - NL
         userPlayedFreq = computeFFT(SAMPLES_TAKEN, SAMPLE_FREQUENCY, vReal, vImag) * FFT_MAIN_MULTIPLIER;
         fundamentalFreq = determineFundamentalFreq(userPlayedFreq);
@@ -152,7 +147,7 @@ void loop() {
       memset(vImag,0, sizeof(vImag));
       signalClipped = false;
 
-  }
+  // }
   }
   else{
     // Begin Speaker Mode Logic - indicated by LED_RX. Note, 0 indicates ON
