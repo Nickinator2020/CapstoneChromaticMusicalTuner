@@ -12,6 +12,8 @@
 #include "arduinoFFT.h"
 #include <math.h>
 #include "main.h"
+#include <LiquidCrystal.h>
+#include "analogWave.h"     // DAC Library
 // END LIBRARIES
 
 // BEGIN PRIVATE VARIABLES
@@ -60,6 +62,16 @@ float fundamentalFrequencies[] = {
   C8 
 };
 const int fundamentalFrequenciesArrayLength = sizeof(fundamentalFrequencies)/sizeof(fundamentalFrequencies[0]);
+
+// Initializes pinout for LCD to 4-Bit
+//RS=12, E=11, D4=10, D5=9, D6=8, D7=7
+//D12(RS) - Port/Pin: P106, Register: P106PFS and PORT1.PCNTR1
+//D11(E) - Port/Pin: P405, Register: P405PFS and PORT4.PCNTR1
+//D7 - Port/Pin: P110, Register: P110PFS and PORT1.PCNTR1
+//D6 - Port/Pin: P111, Register: P111PFS and PORT1.PCNTR1
+//D5 - Port/Pin: P112, Register: P112PFS and PORT1.PCNTR1
+//D4 - Port/Pin: P107, Register: P107PFS and PORT1.PCNTR1
+LiquidCrystal lcd(12, 11, 10, 9, 8, 7);
 int DACFreqCurrentIndex = 0;
 // END PRIVATE VARIABLES
 
@@ -86,6 +98,8 @@ void setup() {
 
   // Set ADC to appropriate bit resolution
   analogReadResolution(ADCBitResolution); 
+  //Initializes 16 x 2 LCD
+  lcd.begin(16, 2);
 }
 
 void loop() {
@@ -128,6 +142,43 @@ void loop() {
         // NOTE: Currently, this only works between 32 Hz - 3100 Hz on sine and square waves - NL
         userPlayedFreq = computeFFT(SAMPLES_TAKEN, SAMPLE_FREQUENCY, vReal, vImag) * FFT_MAIN_MULTIPLIER;
         fundamentalFreq = determineFundamentalFreq(userPlayedFreq);
+
+        //LCD Driver Changes - Nick S
+      //User input error showing as cents
+      //Note Name showing - call getStringFromFundamentalFreq
+      //Flat vs. Sharp vs. In Tune is displayed
+      //Set up to display result, sharp or flat, fundamental frequency pitch
+      float result = fundamentalFreq - userPlayedFreq;                 //setup variable for figuring out sharp or flat
+      float log2val = log(userPlayedFreq / fundamentalFreq) / log(2);  // Sets up log base 2 value of tune difference
+      float cents = 1200 * log2val;                                    //sets up to display how out of tune or in tune
+      //Roughly 1 Hz is 4 cents. +- 5 cents is considered in tune
+
+      lcd.setCursor(0, 0);
+      //lcd.print("Cents:");
+      lcd.print("Cents:     ");
+      lcd.println(cents,2);  //This will print the user error on the first line
+
+      //lcd.setCursor(10,0);
+      //lcd.print("Hz:");
+      //lcd.println(userPlayedFreq);  //Displays user inputted FFT output after Cents
+
+      if (cents > 5) {
+        lcd.setCursor(0, 1);
+        lcd.println("Sharp    ");
+      }
+      if (cents < -5) {
+         lcd.setCursor(0, 1);
+         lcd.println("Flat     ");
+       } 
+      if (cents >= -5 && cents <= 5) {
+         lcd.setCursor(0, 1);
+         lcd.println("In Tune  ");
+       }
+       lcd.setCursor(9, 1);
+       lcd.print("Note: ");
+       lcd.println(getStringFromFundamentalFreq(fundamentalFreq));  //This will print the note name on the second line space 10
+
+       delay(100);  //Update rate, every 100 milliseconds
         
         // Printing out data: - TODO: Get rid of below print statements!!!
         Serial.print("User played frequency: ");
