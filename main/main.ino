@@ -12,6 +12,7 @@
 #include "arduinoFFT.h"
 #include <math.h>
 #include "main.h"
+#include <LiquidCrystal.h>  //LCD Library
 // END LIBRARIES
 
 // BEGIN PRIVATE VARIABLES
@@ -38,7 +39,7 @@ const double SAMPLE_FREQUENCY = 8400;
 
 int samples[SAMPLES_TAKEN];
 
-// FFT and DAC Parameters
+// FFT Parameters
 arduinoFFT FFT = arduinoFFT(); /* Create FFT object */
 double vReal[SAMPLES_TAKEN];
 double vImag[SAMPLES_TAKEN];
@@ -60,7 +61,28 @@ float fundamentalFrequencies[] = {
   C8 
 };
 const int fundamentalFrequenciesArrayLength = sizeof(fundamentalFrequencies)/sizeof(fundamentalFrequencies[0]);
-int DACFreqCurrentIndex = 0;
+
+//DAC and LCD Parameters
+//RS=12, E=11, D4=10, D5=9, D6=8, D7=7
+//D12(RS) - Port/Pin: P106, Register: P106PFS and PORT1.PCNTR1
+//D11(E) - Port/Pin: P405, Register: P405PFS and PORT4.PCNTR1
+//D7 - Port/Pin: P110, Register: P110PFS and PORT1.PCNTR1
+//D6 - Port/Pin: P111, Register: P111PFS and PORT1.PCNTR1
+//D5 - Port/Pin: P112, Register: P112PFS and PORT1.PCNTR1
+//D4 - Port/Pin: P107, Register: P107PFS and PORT1.PCNTR1
+LiquidCrystal lcd(12, 11, 10, 9, 8, 7);
+// Initializes DAC Variables
+const int DAC_PIN = A0;
+const int DAC_RES_BITS = 12;
+const int DAC_MAX = (1 << DAC_RES_BITS) - 1;
+const float PI2 = 6.28318530718f;
+int DACFreqCurrentIndex = 45;//starts at A4 = 440Hz
+float lastOutputFrequency = -1.0f;
+float phase = 0.0f;
+unsigned long lastStatusPrint = 0;
+
+
+bool halfPeriod = 0;
 // END PRIVATE VARIABLES
 
 // BEGIN setup() and loop()
@@ -86,6 +108,12 @@ void setup() {
 
   // Set ADC to appropriate bit resolution
   analogReadResolution(ADCBitResolution); 
+
+  pinMode(DAC_PIN, OUTPUT);
+  
+
+  //Initializes 16 x 2 LCD
+  lcd.begin(16, 2);
 }
 
 void loop() {
@@ -99,6 +127,7 @@ void loop() {
     // Begin Sensor Mode Logic - indicated by LED_TX. Note, 0 indicates ON
     digitalWrite(LED_TX, 0);
     digitalWrite(LED_RX, 1);
+    
 
     // if(TESTING_receivedChar == 'y' || TESTING_receivedChar == 'Y'){ // Conditional statement used for testing purposes - NL
       //Serial.println("TEST Sampling run engaged for SENSOR MODE!!");
@@ -130,15 +159,53 @@ void loop() {
         fundamentalFreq = determineFundamentalFreq(userPlayedFreq);
         
         // Printing out data: - TODO: Get rid of below print statements!!!
-        Serial.print("User played frequency: ");
-        Serial.println(userPlayedFreq,4);
+        // Serial.print("User played frequency: ");
+        // Serial.println(userPlayedFreq,4);
 
         
-        Serial.print("Fundamental frequency: ");
-        Serial.println(fundamentalFreq,4);
+        // Serial.print("Fundamental frequency: ");
+        // Serial.println(fundamentalFreq,4);
 
-        Serial.print("Corresponding Note: ");
-        Serial.println(getStringFromFundamentalFreq(fundamentalFreq));
+        // Serial.print("Corresponding Note: ");
+        // Serial.println(getStringFromFundamentalFreq(fundamentalFreq));
+
+
+
+        //LCD Driver Changes - Nick S
+      //User input error showing as cents
+      //Note Name showing - call getStringFromFundamentalFreq
+      //Flat vs. Sharp vs. In Tune is displayed
+      //Set up to display result, sharp or flat, fundamental frequency pitch
+      float result = fundamentalFreq - userPlayedFreq;                 //setup variable for figuring out sharp or flat
+      float log2val = log(userPlayedFreq / fundamentalFreq) / log(2);  // Sets up log base 2 value of tune difference
+      float cents = 1200 * log2val;                                    //sets up to display how out of tune or in tune
+      //Roughly 1 Hz is 4 cents. +- 5 cents is considered in tune
+
+      lcd.setCursor(0, 0);
+      lcd.print("Cents:");
+      lcd.print(cents, 2);  //This will print the user error on the first line
+
+      lcd.setCursor(0,1); //Sets up if the played frequency is to be displayed, remember to update the cents line
+      lcd.print("Hz:");
+      lcd.print(userPlayedFreq, 1);  //Displays user inputted FFT output after Cents
+
+      if (cents > 5) {
+        lcd.setCursor(14, 0);
+        lcd.print("# ");
+      }
+      if (cents < -5) {
+        lcd.setCursor(14, 0);
+        lcd.print("b ");
+      }
+      if (cents >= -5 && cents <= 5) {
+        lcd.setCursor(14, 0);
+        lcd.print("**");
+      }
+      lcd.setCursor(9, 1);
+      lcd.print("Note:");
+      lcd.print(getStringFromFundamentalFreq(fundamentalFreq));  //This will print the note name on the second line space 10
+
+       delay(100);  //Update rate, every 100 milliseconds
   
       }
 
@@ -156,10 +223,24 @@ void loop() {
 
     //TODO: Speaker Mode Logic using DAC - NICK S
     float outputFrequency = fundamentalFrequencies[DACFreqCurrentIndex];
+    
+    float sampleRate = 20000.0f;
+    float phaseIncrement = PI2 * outputFrequency / sampleRate;
 
+    int sampleValue = (int)((sinf(phase) * 1.5f + 1.5f)*DAC_MAX);
+    analogWrite(DAC_PIN, sampleValue);
+
+    phase += phaseIncrement;
+    if (phase >= PI2) phase -= PI2;
+
+    if (millis() - lastStatusPrint > 500) {
+      Serial.print("Speaker mode, freq=");
+      Serial.println(outputFrequency);
+      lastStatusPrint = millis();
+    }
     // TODO Test print output frequency - Can get rid of
-    Serial.print(outputFrequency);
-    Serial.println(" Hz");
+    // Serial.print(outputFrequency);
+    // Serial.println(" Hz");
     
     // "Listening" frequency buttons logic
     for(int i = 0; i < frequencyShiftButtonsLength; i++){
@@ -338,7 +419,7 @@ double computeFFT(int samples, int sampleFrequency, double *vReal, double *vImag
         // PrintVector(vImag, SAMPLES_TAKEN, SCL_INDEX, SAMPLES_TAKEN, SAMPLE_FREQUENCY);
 
         // Compute Magnitudes:
-        Serial.println("Computed magnitudes:");
+        //Serial.println("Computed magnitudes:");
         FFT.ComplexToMagnitude(vReal, vImag, SAMPLES_TAKEN);
         // Since it is mirrored!!!
         //PrintVector(vReal, (SAMPLES_TAKEN >> 1), SCL_FREQUENCY, SAMPLES_TAKEN, SAMPLE_FREQUENCY); 
