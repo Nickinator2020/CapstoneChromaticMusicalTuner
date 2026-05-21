@@ -124,7 +124,7 @@ typedef enum {
   UP_HALFSTEP_PIN = 1,
   DOWN_HALFSTEP_PIN = 2,
   UP_OCTAVE_PIN = 3,
-  DOWN_OCTAVE_PIN = 4
+  DOWN_OCTAVE_PIN = 4,
 } GPIOPinNumber;
 // END ENUMS
 
